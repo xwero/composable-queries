@@ -1,0 +1,35 @@
+{
+  "name": "xwero/composablequeries",
+  "type": "library",
+  "version": "0.1",
+  "license": "mit",
+  "minimum-stability": "dev",
+  "require": {
+    "php": ">=8.4",
+    "ext-pdo": "*"
+  },
+  "autoload": {
+    "psr-4": {
+      "Xwero\\ComposableQueries\\": "src/"
+    },
+    "files": [
+      "src/functions.php"
+    ]
+  },
+  "require-dev": {
+    "pestphp/pest": "4.x-dev"
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "Test\\" : "tests/"
+    }
+  },
+  "config": {
+    "allow-plugins": {
+      "pestphp/pest-plugin": true
+    }
+  },
+  "scripts": {
+    "tests": "./vendor/bin/pest"
+  }
+}
