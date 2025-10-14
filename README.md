@@ -13,10 +13,30 @@ The composable queries name comes from the fact that the functionality of the li
 When you use PHP 8.5 it will be possible to do following.
 
 ```php
-$query = 'SELECT ~Test\Unit\Users:Name FROM ~Test\Unit\Users:Users WHERE ~Test\Unit\Users:Name = :Test\Unit\Users:Name';
-$map = getStatement($pdo, $query, new QueryParametersCollection(Users::Name, 'me'))
+// Users.php
+namespace Test\Unit;
+
+
+use Xwero\ComposableQueries\ReplacementInterface;
+
+enum Users implements ReplacementInterface
+{
+    case Users;
+    case Name;
+    case Email;
+}
+
+// somewhere in your application, with PHP 8.5 (pipe operator)
+$query = 'SELECT ~Users:Name FROM ~Users:Users WHERE ~Users:Name = :Users:Name';
+$map = getStatement(new PDOConnection(new PDO(getenv('PDO_DSN'))), 
+                    $query, 
+                   new QueryParametersCollection(Users::Name, 'me'), 
+                   new OverrideCollection('Test\Unit'))
        |> getRow(...)
        |> fn($result) => createMapFromArray(Users::Users, $result);
+
+echo 'hello my name is ' . $map[Users::Name];
+
 ```
 ## TODOS
 
