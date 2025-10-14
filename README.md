@@ -16,9 +16,9 @@ When you use PHP 8.5 it will be possible to do following.
 // Users.php
 namespace Test\Unit;
 
-use Xwero\ComposableQueries\ReplacementInterface;
+use Xwero\ComposableQueries\IdentifierInterface;
 
-enum Users implements ReplacementInterface
+enum Users implements IdentifierInterface
 {
     case Users;
     case Name;

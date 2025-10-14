@@ -3,9 +3,9 @@
 namespace Test\Unit;
 
 
-use Xwero\ComposableQueries\ReplacementInterface;
+use Xwero\ComposableQueries\IdentifierInterface;
 
-enum Users implements ReplacementInterface
+enum Users implements IdentifierInterface
 {
     case Users;
     case Name;
