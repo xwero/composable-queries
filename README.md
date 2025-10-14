@@ -16,7 +16,6 @@ When you use PHP 8.5 it will be possible to do following.
 // Users.php
 namespace Test\Unit;
 
-
 use Xwero\ComposableQueries\ReplacementInterface;
 
 enum Users implements ReplacementInterface
@@ -36,15 +35,14 @@ $map = getStatement(new PDOConnection(new PDO(getenv('PDO_DSN'))),
        |> fn($result) => createMapFromArray(Users::Users, $result);
 
 echo 'hello my name is ' . $map[Users::Name];
-
 ```
 ## TODOS
 
-[] More documentation
-[] More (real-world) tests
-[] Functions for non SQL queries.
-[] More map functions
-[] Less hard coding
+- [] Less POC coding
+- [] More documentation
+- [] More (real-world) tests
+- [] Functions for non SQL queries.
+- [] More map functions
 
 ## Inspiration
 
