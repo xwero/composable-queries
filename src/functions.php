@@ -7,7 +7,7 @@ namespace Xwero\ComposableQueries {
     use BackedEnum;
     use SplObjectStorage;
 
-    function getReplacementFromStrings(string $class, string $case): ReplacementInterface|null
+    function getReplacementFromStrings(string $class, string $case): IdentifierInterface|null
     {
         if (!class_exists($class)) {
             return null;
@@ -40,7 +40,7 @@ namespace Xwero\ComposableQueries {
             return new PlaceholderReplacementCollection();
         }
 
-        $getQueryReplacement = function (ReplacementInterface $replacement, OverrideCollection|null $overrides = null): string {
+        $getQueryReplacement = function (IdentifierInterface $replacement, OverrideCollection|null $overrides = null): string {
             if ($overrides !== null && $overrides->keyExists($replacement)) {
                 return $overrides->getValue($replacement);
             }
@@ -55,7 +55,7 @@ namespace Xwero\ComposableQueries {
             [$placeholder, $pair] = $item;
             if (class_exists($pair[0])) {
                 $replacement = getReplacementFromStrings($pair[0], $pair[1]);
-                if ($replacement instanceof ReplacementInterface) {
+                if ($replacement instanceof IdentifierInterface) {
                     $placeholderReplacements[] = new PlaceholderReplacement($placeholder, $getQueryReplacement($replacement, $overrides));
                 }
             } elseif ($baseNamespaces instanceof BaseNamespaceCollection) {
@@ -63,7 +63,7 @@ namespace Xwero\ComposableQueries {
                     $possibleClass = $baseNamespace . '\\' . $pair[0];
                     if (class_exists($possibleClass)) {
                         $replacement = getReplacementFromStrings($possibleClass, $pair[1]);
-                        if ($replacement instanceof ReplacementInterface) {
+                        if ($replacement instanceof IdentifierInterface) {
                             $placeholderReplacements[] = new PlaceholderReplacement($placeholder, $getQueryReplacement($replacement, $overrides));
                         }
                         // Additional classes will never be replaced
@@ -112,7 +112,7 @@ namespace Xwero\ComposableQueries {
 
             if (class_exists($pair[0])) {
                 $replacement = getReplacementFromStrings($pair[0], $pair[1]);
-                if ($replacement instanceof ReplacementInterface && $queryParameters->keyExists($replacement)) {
+                if ($replacement instanceof IdentifierInterface && $queryParameters->keyExists($replacement)) {
                     $placeholderReplacements[$placeholder] = $queryParameters->getValue($replacement);
                 }
             } elseif ($baseNamespaces instanceof BaseNamespaceCollection) {
@@ -120,7 +120,7 @@ namespace Xwero\ComposableQueries {
                     $possibleClass = $baseNamespace . '\\' . $pair[0];
                     if (class_exists($possibleClass)) {
                         $replacement = getReplacementFromStrings($possibleClass, $pair[1]);
-                        if ($replacement instanceof ReplacementInterface && $queryParameters->keyExists($replacement)) {
+                        if ($replacement instanceof IdentifierInterface && $queryParameters->keyExists($replacement)) {
                             $placeholderReplacements[$placeholder] = $queryParameters->getValue($replacement);
                             // No need to continue the loop once the class is found
                             break;
@@ -133,7 +133,7 @@ namespace Xwero\ComposableQueries {
         return $placeholderReplacements;
     }
 
-    function createMapFromArray(ReplacementInterface $replacement, array $data): SplObjectStorage
+    function createMapFromArray(IdentifierInterface $replacement, array $data): SplObjectStorage
     {
         $cases = $replacement::cases();
         $map  = new SplObjectStorage();

@@ -8,7 +8,7 @@ use BackedEnum;
 
 class QueryParametersCollection extends TypeCollection
 {
-    public function __construct(ReplacementInterface|string|int|float|array ...$pairs)
+    public function __construct(IdentifierInterface|string|int|float|array ...$pairs)
     {
         $arrays = [];
 
@@ -25,8 +25,8 @@ class QueryParametersCollection extends TypeCollection
             }
         }
 
-        $keys = array_filter($pairs, fn($item) => $item instanceof ReplacementInterface);
-        $values = array_filter($pairs, fn($item) => ! $item instanceof ReplacementInterface);
+        $keys = array_filter($pairs, fn($item) => $item instanceof IdentifierInterface);
+        $values = array_filter($pairs, fn($item) => ! $item instanceof IdentifierInterface);
         // Having more values than keys means storing too much information.
         if (count($keys) < count($values)) {
             $values = array_slice($values, 0, count($keys));
@@ -41,7 +41,7 @@ class QueryParametersCollection extends TypeCollection
         $this->values = array_values($values);
     }
 
-    public function getValue(ReplacementInterface $check) : string|int|float|null
+    public function getValue(IdentifierInterface $check) : string|int|float|null
     {
         $valueKey = array_search($check, $this->keys);
 

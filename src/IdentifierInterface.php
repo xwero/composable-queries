@@ -6,6 +6,6 @@ namespace Xwero\ComposableQueries;
 
 use \UnitEnum;
 
-interface ReplacementInterface extends UnitEnum
+interface IdentifierInterface extends UnitEnum
 {
 }

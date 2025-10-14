@@ -2,10 +2,10 @@
 
 namespace Test\Unit;
 
-use Xwero\ComposableQueries\ReplacementInterface;
+use Xwero\ComposableQueries\IdentifierInterface;
 
 
-enum UsersBacked : string implements ReplacementInterface
+enum UsersBacked : string implements IdentifierInterface
 {
     case Users = 'users';
     case Name = 'name';
