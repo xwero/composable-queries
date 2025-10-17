@@ -7,7 +7,7 @@ namespace Xwero\ComposableQueries {
     use BackedEnum;
     use SplObjectStorage;
 
-    function getReplacementFromStrings(string $class, string $case): IdentifierInterface|null
+    function getIdentifierFromStrings(string $class, string $case): IdentifierInterface|null
     {
         if (!class_exists($class)) {
             return null;
@@ -28,48 +28,67 @@ namespace Xwero\ComposableQueries {
         return null;
     }
 
+    function queryToIdentifierOrPairCollection(string $query, string $regex, BaseNamespaceCollection|null $namespaces = null): array
+    {
+        preg_match_all($regex, $query, $matches);
+
+        if (count($matches) == 0) {
+            return [];
+        }
+
+        return array_map(function($item) use ($namespaces) {
+            $pair = explode(':', substr($item, 1));
+
+            if(class_exists($pair[0])){
+                $replacement = getIdentifierFromStrings($pair[0], $pair[1]);
+                if ($replacement instanceof IdentifierInterface) {
+                    return [$item, $replacement];
+                }
+            }
+
+            if ($namespaces instanceof BaseNamespaceCollection) {
+                foreach ($namespaces->getAll() as $baseNamespace) {
+                    $possibleClass = $baseNamespace . '\\' . $pair[0];
+                    if (class_exists($possibleClass)) {
+                        $replacement = getIdentifierFromStrings($possibleClass, $pair[1]);
+                        if ($replacement instanceof IdentifierInterface) {
+                            return [$item, $replacement];
+                        }
+                    }
+                }
+            }
+
+            return [$item, $pair];
+        } , $matches[0]);
+    }
+
+    function getQueryReplacementFromIdentifier(IdentifierInterface $replacement, OverrideCollection|null $overrides = null): string {
+        if ($overrides !== null && $overrides->keyExists($replacement)) {
+            return $overrides->getValue($replacement);
+        }
+
+        return $replacement instanceof BackedEnum ? $replacement->value : strtolower($replacement->name);
+    }
+
     function collectPlaceholders(
         string                       $query,
         OverrideCollection|null      $overrides = null,
-        BaseNamespaceCollection|null $baseNamespaces = null,
+        BaseNamespaceCollection|null $namespaces = null,
     ): PlaceholderReplacementCollection
     {
-        preg_match_all("(~[A-Za-z1-9\\\]+:[A-Za-z1-9]+)", $query, $matches);
+        $placeholders = queryToIdentifierOrPairCollection($query, "(~[A-Za-z1-9\\\]+:[A-Za-z1-9]+)", $namespaces);
 
-        if (count($matches) == 0) {
+        if(count($placeholders) === 0) {
             return new PlaceholderReplacementCollection();
         }
 
-        $getQueryReplacement = function (IdentifierInterface $replacement, OverrideCollection|null $overrides = null): string {
-            if ($overrides !== null && $overrides->keyExists($replacement)) {
-                return $overrides->getValue($replacement);
-            }
-
-            return $replacement instanceof BackedEnum ? $replacement->value : strtolower($replacement->name);
-        };
-
-        $placeholders = array_map(fn($item) => [$item, explode(':', substr($item, 1))], $matches[0]);
         $placeholderReplacements = [];
 
         foreach ($placeholders as $item) {
-            [$placeholder, $pair] = $item;
-            if (class_exists($pair[0])) {
-                $replacement = getReplacementFromStrings($pair[0], $pair[1]);
-                if ($replacement instanceof IdentifierInterface) {
-                    $placeholderReplacements[] = new PlaceholderReplacement($placeholder, $getQueryReplacement($replacement, $overrides));
-                }
-            } elseif ($baseNamespaces instanceof BaseNamespaceCollection) {
-                foreach ($baseNamespaces->getAll() as $baseNamespace) {
-                    $possibleClass = $baseNamespace . '\\' . $pair[0];
-                    if (class_exists($possibleClass)) {
-                        $replacement = getReplacementFromStrings($possibleClass, $pair[1]);
-                        if ($replacement instanceof IdentifierInterface) {
-                            $placeholderReplacements[] = new PlaceholderReplacement($placeholder, $getQueryReplacement($replacement, $overrides));
-                        }
-                        // Additional classes will never be replaced
-                        break;
-                    }
-                }
+            [$placeholder, $identifierOrPair] = $item;
+
+            if ($identifierOrPair instanceof IdentifierInterface) {
+                $placeholderReplacements[] = new PlaceholderReplacement($placeholder, getQueryReplacementFromIdentifier($identifierOrPair, $overrides));
             }
         }
 
@@ -79,70 +98,87 @@ namespace Xwero\ComposableQueries {
     function replacePlaceholders(
         string                       $query,
         OverrideCollection|null      $overrides = null,
-        BaseNamespaceCollection|null $baseNamespaces = null,
+        BaseNamespaceCollection|null $namespaces = null,
     ): string
     {
-        $placeholderReplacements = collectPlaceholders($query, $overrides, $baseNamespaces);
+        $placeholderReplacements = collectPlaceholders($query, $overrides, $namespaces);
 
         return str_replace($placeholderReplacements->getPlaceholders(), $placeholderReplacements->getReplacements(), $query);
     }
 
-    function collectQueryParameters(string $query, QueryParametersCollection $queryParameters, BaseNamespaceCollection|null $baseNamespaces = null): array
+    function collectQueryParameters(string $query, QueryParametersCollection $queryParameters, BaseNamespaceCollection|null $namespaces = null): array
     {
-        preg_match_all("(:[A-Za-z1-9\\\]+:[A-Za-z1-9]+)", $query, $matches);
+        $placeholders = queryToIdentifierOrPairCollection($query, "(:[A-Za-z1-9\\\]+:[A-Za-z1-9]+)", $namespaces);
 
-        if (count($matches) == 0) {
+        if (count($placeholders) == 0) {
             return [];
         }
 
-        $placeholders = array_map(fn($item) => [$item, explode(':', substr($item, 1))], $matches[0]);
         $placeholderReplacements = [];
 
         foreach ($placeholders as $item) {
-            [$placeholder, $pair] = $item;
+            [$placeholder, $identifierOrPair] = $item;
 
-            if ($pair[0] == 'Array') {
+            if (is_array($identifierOrPair) && $identifierOrPair[0] == 'Array') {
                 $value = $queryParameters->getArrayValue($placeholder);
                 if (is_array($value)) {
                     foreach ($value as $k => $v) {
                         $placeholderReplacements[$placeholder . '_' . $k] = $v;
                     }
                 }
-            }
-
-            if (class_exists($pair[0])) {
-                $replacement = getReplacementFromStrings($pair[0], $pair[1]);
-                if ($replacement instanceof IdentifierInterface && $queryParameters->keyExists($replacement)) {
-                    $placeholderReplacements[$placeholder] = $queryParameters->getValue($replacement);
-                }
-            } elseif ($baseNamespaces instanceof BaseNamespaceCollection) {
-                foreach ($baseNamespaces->getAll() as $baseNamespace) {
-                    $possibleClass = $baseNamespace . '\\' . $pair[0];
-                    if (class_exists($possibleClass)) {
-                        $replacement = getReplacementFromStrings($possibleClass, $pair[1]);
-                        if ($replacement instanceof IdentifierInterface && $queryParameters->keyExists($replacement)) {
-                            $placeholderReplacements[$placeholder] = $queryParameters->getValue($replacement);
-                            // No need to continue the loop once the class is found
-                            break;
-                        }
-                    }
-                }
+            } elseif ($identifierOrPair instanceof IdentifierInterface && $queryParameters->keyExists($identifierOrPair)) {
+                $placeholderReplacements[$placeholder] = $queryParameters->getValue($identifierOrPair);
             }
         }
 
         return $placeholderReplacements;
     }
 
-    function createMapFromArray(IdentifierInterface $replacement, array $data): SplObjectStorage
+    function createMapFromQueryResult( array $data, string $query, OverrideCollection|null $overrides = null, BaseNamespaceCollection|null $namespaces = null): SplObjectStorage|MapCollection
     {
-        $cases = $replacement::cases();
         $map  = new SplObjectStorage();
+        $placeholders = queryToIdentifierOrPairCollection($query, "(~[A-Za-z1-9\\\]+:[A-Za-z1-9]+)", $namespaces);
 
-        foreach ($data as $name => $value) {
-            foreach ($cases as $case) {
-                $match = $case instanceof BackedEnum ? $case->value : strtolower($case->name);
-                if($name === $match) {
-                    $map[$case] = $value;
+        if(count($placeholders) === 0) {
+            foreach($data as $key => $item) {
+                $map[$key] = $item;
+            }
+
+            return $map;
+        }
+
+        if(is_int(array_key_first($data))) {
+            $mapCollection = new MapCollection();
+
+            foreach($data as $row) {
+                $map = new SplObjectStorage();
+
+                foreach ($placeholders as $item) {
+                    [$placeholder, $identifierOrPair] = $item;
+
+                    if ($identifierOrPair instanceof IdentifierInterface) {
+                        $queryReplacement = getQueryReplacementFromIdentifier($identifierOrPair, $overrides);
+
+                        if(array_key_exists($queryReplacement, $row)) {
+                            $map[$identifierOrPair] = $row[$queryReplacement];
+                        }
+                    }
+                }
+
+                $mapCollection->append($map);
+            }
+
+            return $mapCollection;
+        }
+
+        foreach ($placeholders as $item) {
+            [$placeholder, $identifierOrPair] = $item;
+
+            if ($identifierOrPair instanceof IdentifierInterface) {
+                $queryReplacement = getQueryReplacementFromIdentifier($identifierOrPair, $overrides);
+
+                if(array_key_exists($queryReplacement, $data)) {
+                    $map[$identifierOrPair] = $data[$queryReplacement];
                 }
             }
         }
@@ -200,13 +236,13 @@ namespace Xwero\ComposableQueries\PDO {
         return str_replace(array_keys($queryReplacements), array_values($queryReplacements), $query);
     }
 
-    function getStatement(Connection $conn, string $query, QueryParametersCollection|null $parameters = null, OverrideCollection|null $overrides = null, BaseNamespaceCollection|null $baseNamespaces = null): PDOStatement
+    function getStatement(Connection $conn, string $query, QueryParametersCollection|null $parameters = null, OverrideCollection|null $overrides = null, BaseNamespaceCollection|null $namespaces = null): PDOStatement
     {
-        $query = replacePlaceholders($query, $overrides, $baseNamespaces);
+        $query = replacePlaceholders($query, $overrides, $namespaces);
         $statementParameters = [];
 
         if ($parameters !== null) {
-            $statementParameters = collectQueryParameters($query, $parameters, $baseNamespaces);
+            $statementParameters = collectQueryParameters($query, $parameters, $namespaces);
             $query = replaceParameters($query, $statementParameters);
         }
 

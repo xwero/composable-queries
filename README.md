@@ -5,7 +5,7 @@
 The main goal of this library is to create a single source of truth for data storage containers and properties.
 This not only in data storage queries but also in the application code.
 
-The backbone of this source of truth is the `ReplacementInterface` class which is the library's custom name for an enumeration.
+The backbone of this source of truth is the `IdentifierInterface` class which is the library's custom name for an enumeration.
 In the queries this will look like `SELECT ~Test\Unit\Users:Name FROM ~Test\Unit\Users:Users`, and when using one of the map functions
 it will be possible to get the value with `$map[Test\Unit\Users:Name]`.
 
@@ -16,7 +16,7 @@ When you use PHP 8.5 it will be possible to do following.
 // Users.php
 namespace Test\Unit;
 
-use Xwero\ComposableQueries\IdentifierInterface;
+use Xwero\ComposableQueries\IdentifierInterface;use function Xwero\ComposableQueries\createMapFromQueryResult;
 
 enum Users implements IdentifierInterface
 {
@@ -27,18 +27,19 @@ enum Users implements IdentifierInterface
 
 // somewhere in your application, with PHP 8.5 (pipe operator)
 $query = 'SELECT ~Users:Name FROM ~Users:Users WHERE ~Users:Name = :Users:Name';
+$namespaces = new BaseNamespaceCollection('Test\Unit');
 $map = getStatement(new PDOConnection(new PDO(getenv('PDO_DSN'))), 
                     $query, 
                    new QueryParametersCollection(Users::Name, 'me'), 
-                   new OverrideCollection('Test\Unit'))
+                   namespaces: $namespaces)
        |> getRow(...)
-       |> fn($result) => createMapFromArray(Users::Users, $result);
+       |> fn($result) => createMapFromQueryResult($result, $query, namespaces: $namespaces);
 
 echo 'hello my name is ' . $map[Users::Name];
 ```
 ## TODOS
 
-- [] Less POC coding
+- [x] Less POC coding
 - [] More documentation
 - [] More (real-world) tests
 - [] Functions for non SQL queries.

@@ -29,7 +29,7 @@ test('full namespace with overrides', function (string $placeholder, string $rep
 test('shortened namespace', function (string $placeholder, string $replacement) {
     $baseNamespaces = new BaseNamespaceCollection('Test\Unit');
 
-    expect(replacePlaceholders($placeholder, baseNamespaces: $baseNamespaces))->toBe($replacement);
+    expect(replacePlaceholders($placeholder, namespaces: $baseNamespaces))->toBe($replacement);
 })->with([
     ['~Users:Users', "users"],
     ['~UsersBacked:Email', "e-mail"],

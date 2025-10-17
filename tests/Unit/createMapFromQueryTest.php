@@ -1,10 +1,11 @@
 <?php
 
 use Test\Unit\Users;
-use function Xwero\ComposableQueries\createMapFromArray;
+use function Xwero\ComposableQueries\createMapFromQueryResult;
+
 
 test('single item map', function () {
-    $map = createMapFromArray(Users::Users, ['name' => 'John Doe']);
+    $map = createMapFromQueryResult(['name' => 'John Doe'], 'SELECT ~Test\Unit\Users:Name FROM ~Test\Unit\Users:Users;');
 
     expect($map)->toBeInstanceOf(SplObjectStorage::class)
         ->and($map->count())->toBe(1)
