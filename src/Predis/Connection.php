@@ -2,9 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Xwero\ComposableQueries\PDO;
+namespace Xwero\ComposableQueries\Predis;
 
-use PDO;
+
+use Predis\Client;
 use Xwero\ComposableQueries\DatabaseConnectionException;
 use Xwero\ComposableQueries\DatabaseConnectionInterface;
 
@@ -13,10 +14,8 @@ final class Connection implements DatabaseConnectionInterface
 
     public function __construct(public mixed $connection)
     {
-        if( ! $connection instanceof PDO) {
+        if( ! $connection instanceof Client) {
             throw new DatabaseConnectionException('PDO connection must be instance of PDO');
         }
-
-        $connection->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
     }
 }

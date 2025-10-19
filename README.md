@@ -42,7 +42,7 @@ echo 'hello my name is ' . $map[Users::Name];
 - [x] Less POC coding
 - [] More documentation
 - [] More (real-world) tests
-- [] Functions for non SQL queries.
+- [] Split off the database functions for better composability 
 - [] More map functions
 
 ## Inspiration

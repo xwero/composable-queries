@@ -106,7 +106,7 @@ namespace Xwero\ComposableQueries {
         return str_replace($placeholderReplacements->getPlaceholders(), $placeholderReplacements->getReplacements(), $query);
     }
 
-    function collectQueryParameters(string $query, QueryParametersCollection $queryParameters, BaseNamespaceCollection|null $namespaces = null): array
+    function collectQueryParameters(string $query, QueryParametersCollection $parameters, BaseNamespaceCollection|null $namespaces = null): array
     {
         $placeholders = queryToIdentifierOrPairCollection($query, "(:[A-Za-z1-9\\\]+:[A-Za-z1-9]+)", $namespaces);
 
@@ -120,18 +120,45 @@ namespace Xwero\ComposableQueries {
             [$placeholder, $identifierOrPair] = $item;
 
             if (is_array($identifierOrPair) && $identifierOrPair[0] == 'Array') {
-                $value = $queryParameters->getArrayValue($placeholder);
+                $value = $parameters->getArrayValue($placeholder);
                 if (is_array($value)) {
                     foreach ($value as $k => $v) {
                         $placeholderReplacements[$placeholder . '_' . $k] = $v;
                     }
                 }
-            } elseif ($identifierOrPair instanceof IdentifierInterface && $queryParameters->keyExists($identifierOrPair)) {
-                $placeholderReplacements[$placeholder] = $queryParameters->getValue($identifierOrPair);
+            } elseif ($identifierOrPair instanceof IdentifierInterface && $parameters->keyExists($identifierOrPair)) {
+                $placeholderReplacements[$placeholder] = $parameters->getValue($identifierOrPair);
             }
         }
 
         return $placeholderReplacements;
+    }
+
+    /*
+     * This is the more dangerous parameter function.
+     * Use only if the values are validated before adding them to the query.
+     */
+    function addQueryParameters(string $query, QueryParametersCollection $parameters, BaseNamespaceCollection|null $namespaces = null): string
+    {
+        $placeholders = queryToIdentifierOrPairCollection($query, "(:[A-Za-z1-9\\\]+:[A-Za-z1-9]+)", $namespaces);
+
+        if (count($placeholders) == 0) {
+            return $query;
+        }
+
+        $search = [];
+        $replacements = [];
+
+        foreach ($placeholders as $item) {
+            [$placeholder, $identifierOrPair] = $item;
+
+            if($identifierOrPair instanceof IdentifierInterface && $parameters->keyExists($identifierOrPair)) {
+                $search[] = $placeholder;
+                $replacements[] = $parameters->getValue($identifierOrPair);
+            }
+        }
+
+        return str_replace($search, $replacements, $query);
     }
 
     function createMapFromQueryResult( array $data, string $query, OverrideCollection|null $overrides = null, BaseNamespaceCollection|null $namespaces = null): SplObjectStorage|MapCollection
@@ -308,5 +335,76 @@ namespace Xwero\ComposableQueries\PDO {
             return new Error($e);
         }
     }
+}
 
+namespace Xwero\ComposableQueries\Predis {
+
+    use Predis\Response\ServerException;
+    use Xwero\ComposableQueries\BaseNamespaceCollection;
+    use Xwero\ComposableQueries\Error;
+    use Xwero\ComposableQueries\QueryParametersCollection;
+    use function Xwero\ComposableQueries\addQueryParameters;
+    use function Xwero\ComposableQueries\replacePlaceholders;
+
+    function getStatement(string $query, QueryParametersCollection|null $parameters = null, BaseNamespaceCollection|null $namespaces = null): Command|Error
+    {
+        $query = replacePlaceholders($query, null, $namespaces);
+
+        if($parameters !== null) {
+            $query = addQueryParameters($query, $parameters, $namespaces);
+        }
+
+        $rawCommand = explode(' ', preg_replace('/\s+/', ' ', trim($query) ) );
+
+        if(count($rawCommand) < 2) {
+          return new Error(new InvalidCommand('A command needs at least a command and an argument.'));
+        }
+
+        $possibleCommand =  strtoupper(array_shift($rawCommand));
+        $predisNamespace = 'Predis\Command\Redis';
+
+        if(class_exists($predisNamespace . '\\' . $possibleCommand)) {
+            return new Command(strtolower($possibleCommand), $rawCommand);
+        }
+
+        $subDirectories = [
+          'AbstractCommand',
+          'BloomFilter',
+          'CountMinSketch',
+          'CuckooFilter',
+          'Json',
+          'Search',
+          'TDigest',
+          'TimeSeries',
+          'TopK'
+        ];
+
+        foreach ($subDirectories as $subDirectory) {
+            if(class_exists($predisNamespace . '\\' . $subDirectory . '\\' . $possibleCommand)) {
+                return new Command(strtolower($possibleCommand), $rawCommand);
+            }
+        }
+
+        return new Error(new InvalidCommand("The command $possibleCommand does not exists."));
+    }
+
+    function executeStatement(Connection $connection, Command $command): Error|true
+    {
+        try {
+            $connection->connection->{$command->name}($command->arguments ?? []);
+
+            return true;
+        }catch (ServerException $e) {
+            return new Error($e);
+        }
+    }
+
+    function getResult(Connection $connection, Command $command): string|int|array|Error
+    {
+        try {
+            return $connection->connection->{$command->name}($command->arguments ?? []);
+        }catch (ServerException $e) {
+            return new Error($e);
+        }
+    }
 }

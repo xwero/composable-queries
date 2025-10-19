@@ -18,8 +18,7 @@ pest()->extend(TestCase::class)->in('Feature');
 
 function PdoUsers(string $query = "") : Connection
 {
-    $connection = new Connection();
-    $connection->connection = new PDO('sqlite::memory:');
+    $connection = new Connection(new PDO('sqlite::memory:'));
 
     $connection->connection->exec("CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY,
