@@ -6,8 +6,10 @@
   "minimum-stability": "dev",
   "require": {
     "php": ">=8.4",
+    "ext-mongodb": "*",
     "ext-pdo": "*",
-    "predis/predis": "dev-main"
+    "predis/predis": "dev-main",
+    "mongodb/mongodb": "v2.x-dev"
   },
   "autoload": {
     "psr-4": {
@@ -31,6 +33,6 @@
     }
   },
   "scripts": {
-    "tests": "./vendor/bin/pest"
+    "tests": "XDEBUG_MODE=coverage ./vendor/bin/pest"
   }
 }

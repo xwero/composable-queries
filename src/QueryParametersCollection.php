@@ -4,13 +4,12 @@ declare(strict_types=1);
 
 namespace Xwero\ComposableQueries;
 
-use BackedEnum;
-
 class QueryParametersCollection extends TypeCollection
 {
     public function __construct(IdentifierInterface|string|int|float|array ...$pairs)
     {
-        $arrays = [];
+        $keys = [];
+        $values = [];
 
         foreach ($pairs as $pair) {
             if (is_array($pair)) {
@@ -18,37 +17,43 @@ class QueryParametersCollection extends TypeCollection
                 $value = $pair[$key];
 
                 if(is_string($key) && is_array($value)) {
-                    $arrays[$key] = $value;
+                    $keys[] = $key;
+                    $values[] = $value;
                 }
 
                 unset($pair);
             }
         }
 
-        $keys = array_filter($pairs, fn($item) => $item instanceof IdentifierInterface);
-        $values = array_filter($pairs, fn($item) => ! $item instanceof IdentifierInterface);
+        $filteredKeys = array_values(array_filter($pairs, fn($item) => $item instanceof IdentifierInterface));
+        $filteredValues = array_values(array_filter($pairs, fn($item) => ! $item instanceof IdentifierInterface));
         // Having more values than keys means storing too much information.
-        if (count($keys) < count($values)) {
-            $values = array_slice($values, 0, count($keys));
+        if (count($filteredKeys) < count($filteredValues)) {
+            $filteredValues = array_slice($filteredValues, 0, count($filteredKeys));
+        }
+        // An identifier can not have an array as value.
+        $filteredArrayValues = array_keys(array_filter($filteredValues, fn($item) => is_array($item)));
+
+        if(count($filteredArrayValues) > 0) {
+            foreach ($filteredArrayValues as $key) {
+                unset($filteredValues[$key]);
+                unset($filteredKeys[$key]);
+            }
         }
 
-        if(count($arrays) > 0) {
-            $keys = array_merge($keys, array_keys($arrays));
-            $values = array_merge($values, array_values($arrays));
-        }
+        $keys = array_values(array_merge($keys, $filteredKeys));
+        $values = array_values(array_merge($values, $filteredValues));
 
-        $this->keys = array_values($keys);
-        $this->values = array_values($values);
+        $this->keys = $keys;
+        $this->values = $values;
     }
 
-    public function getValue(IdentifierInterface $check) : string|int|float|null
+    public function keyExists(IdentifierInterface $check) : bool
     {
-        $valueKey = array_search($check, $this->keys);
-
-        return is_int($valueKey) ? $this->values[$valueKey] : null;
+        return in_array($check, $this->keys);
     }
 
-    public function getArrayValue(string $check) : array|null
+    public function getValue(IdentifierInterface|string $check) : string|int|float|array|null
     {
         $valueKey = array_search($check, $this->keys);
 

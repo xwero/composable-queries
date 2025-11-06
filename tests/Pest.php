@@ -1,7 +1,12 @@
 <?php
 
+use MongoDB\Client;
 use Test\TestCase;
-use Xwero\ComposableQueries\PDO\Connection;
+use Xwero\ComposableQueries\MongoDb\Connection;
+use Xwero\ComposableQueries\PDO\Connection as PDOConnection;
+use Xwero\ComposableQueries\Predis\Command;
+use Xwero\ComposableQueries\Predis\Connection as PredisConnection;
+use function Xwero\ComposableQueries\Predis\executeCommand;
 
 /*
 |--------------------------------------------------------------------------
@@ -16,11 +21,11 @@ use Xwero\ComposableQueries\PDO\Connection;
 
 pest()->extend(TestCase::class)->in('Feature');
 
-function PdoUsers(string $query = "") : Connection
+function PdoUsers(string $query = "") : PDOConnection
 {
-    $connection = new Connection(new PDO('sqlite::memory:'));
+    $connection = new PDOConnection(new PDO('sqlite::memory:'));
 
-    $connection->connection->exec("CREATE TABLE IF NOT EXISTS users (
+    $connection->client->exec("CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY,
     name TEXT NOT NULL,
     email TEXT NOT NULL,
@@ -28,11 +33,47 @@ function PdoUsers(string $query = "") : Connection
                                  );");
 
     if($query !== "") {
-        $connection->connection->exec($query);
+        $connection->client->exec($query);
     }
 
     return $connection;
 }
 
+function RedisConnection(Command ...$commands) : PredisConnection
+{
+    $port = getenv('REDIS_PORT');
+
+    if($port === false) {
+        $port = 6380;
+    }
+
+    $connection = new PredisConnection(new Predis\Client('tcp://127.0.0.1:' . $port));
+
+    try {
+        $connection->client->ping();
+    } catch (Exception $e) {
+        throw new Exception("Redis server is not running.");
+    }
+
+    if(count($commands) > 0){
+        foreach ($commands as $command) {
+            executeCommand($connection, $command);
+        }
+    }
+
+    return $connection;
+}
+
+
+function MongoDbTestDb(array|null $document = null, string|null $collection = null) : Connection
+{
+    $connection = new Connection(new Client(), 'test');
+
+    if(is_array($document) && is_string($collection)) {
+        $connection->databaseClient->getCollection($collection)->insertOne($document);
+    }
+
+    return $connection;
+}
 
 

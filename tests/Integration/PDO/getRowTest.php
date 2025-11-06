@@ -2,8 +2,13 @@
 
 use Test\Unit\Users;
 use Xwero\ComposableQueries\QueryParametersCollection;
+use Xwero\ComposableQueries\Error;
 use function Xwero\ComposableQueries\PDO\getRow;
 use function Xwero\ComposableQueries\PDO\getStatement;
+
+test('error', function () {
+    expect(getRow(new Error(new Exception('test'))))->toBeInstanceOf(Error::class);
+});
 
 test('get name and email', function () {
     $pdo = PdoUsers("INSERT INTO users (name, email, password) VALUES ('me', 'dfsdf', 'dfsdf')");

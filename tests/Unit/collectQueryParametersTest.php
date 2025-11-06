@@ -36,7 +36,7 @@ test ('parameters', function (
         ':Users:Users, :UsersBacked:Users',
         new QueryParametersCollection(Users::Users, 1, UsersBacked::Users, 2),
         new BaseNamespaceCollection('Test\Unit'),
-        [':Users:Users' => 1, ':UsersBacked:Users' => 2]
+        [':UsersBacked:Users' => 2, ':Users:Users' => 1]
     ],
     'array' => [
         ':Array:Test',

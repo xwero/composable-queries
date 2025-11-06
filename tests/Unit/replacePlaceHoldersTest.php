@@ -3,7 +3,6 @@
 use Test\Unit\Users;
 use Test\Unit\UsersBacked;
 use Xwero\ComposableQueries\BaseNamespaceCollection;
-use Xwero\ComposableQueries\OverrideCollection;
 use function Xwero\ComposableQueries\replacePlaceholders;
 
 test(('no replacement'), function ($query) {
@@ -15,15 +14,7 @@ test('full namespace', function (string $placeholder, string $replacement) {
 })->with([
     ['~Test\Unit\Users:Users', "users"],
     ['~Test\Unit\UsersBacked:Email', "e-mail"],
-]);
-
-test('full namespace with overrides', function (string $placeholder, string $replacement) {
-    $overrides = new OverrideCollection(Users::Users, 'users as u', UsersBacked::Email, 'u.email');
-
-    expect(replacePlaceholders($placeholder, $overrides))->toBe($replacement);
-})->with([
-    ['~Test\Unit\Users:Users', "users as u"],
-    ['~Test\Unit\UsersBacked:Email', "u.email"],
+    ['~Test\Unit\Titles:Title ~Test\Unit\Titles:Titles', "primary_title title"],
 ]);
 
 test('shortened namespace', function (string $placeholder, string $replacement) {
@@ -35,12 +26,84 @@ test('shortened namespace', function (string $placeholder, string $replacement) 
     ['~UsersBacked:Email', "e-mail"],
 ]);
 
-test('shortened namespace with overrides', function (string $placeholder, string $replacement) {
-    $baseNamespaces = new BaseNamespaceCollection('Test\Unit');
-    $overrides = new OverrideCollection(Users::Users, 'users as u', UsersBacked::Email, 'u.email');
+test('SQL subquery', function () {
+   $result = "select jsonb_agg(result) from ( 
+      select 
+        primary_title as title, 
+        genres,
+        (
+          select jsonb_agg(actor) from (
+            select
+              (select primaryName from person where person.nconst = principal.nconst) as name, 
+              (
+                  select jsonb_agg(character)
+                  from principal_character
+                  where principal_character.tconst = principal.tconst
+                  and principal_character.nconst = principal.nconst
+              ) as characters
+            from principal
+            where principal.tconst = title.tconst
+            and category = 'actor'
+            order by ordering 
+            limit 10
+          ) as actor
+        ) as actors,
+        (
+          select jsonb_agg(primaryName)
+          from principal, person
+          where principal.tconst = title.tconst
+          and person.nconst = principal.nconst
+          and category = 'director'
+        ) as director,
+        (
+          select jsonb_agg(primaryName)
+          from principal, person
+          where principal.tconst = title.tconst
+          and person.nconst = principal.nconst
+          and category = 'writer'
+        ) as writer
+      from title
+      where tconst = 1
+    ) as result;";
 
-    expect(replacePlaceholders($placeholder, $overrides, $baseNamespaces))->toBe($replacement);
-})->with([
-    ['~Users:Users', "users as u"],
-    ['~UsersBacked:Email', "u.email"],
-]);
+   $query = "select jsonb_agg(result) from ( 
+      select 
+        ~Titles:Title as title, 
+        ~Titles:Genres,
+        (
+          select jsonb_agg(actor) from (
+            select
+              (select ~Persons:Name from ~Persons:Persons where ~Persons:Persons.~Persons:Id = ~Principals:Principals.~Principals:PersonId) as name, 
+              (
+                  select jsonb_agg(~PrincipalCharacters:Character)
+                  from ~PrincipalCharacters:PrincipalCharacters
+                  where ~PrincipalCharacters:PrincipalCharacters.~PrincipalCharacters:TitleId = ~Principals:Principals.~Principals:TitleId
+                  and ~PrincipalCharacters:PrincipalCharacters.~PrincipalCharacters:PersonId = ~Principals:Principals.~Principals:PersonId
+              ) as characters
+            from ~Principals:Principals
+            where ~Principals:Principals.~Principals:TitleId = ~Titles:Titles.~Titles:Id
+            and ~Principals:Category = 'actor'
+            order by ~Principals:Order 
+            limit 10
+          ) as actor
+        ) as actors,
+        (
+          select jsonb_agg(~Persons:Name)
+          from ~Principals:Principals, ~Persons:Persons
+          where ~Principals:Principals.~Principals:TitleId = ~Titles:Titles.~Titles:Id
+          and ~Persons:Persons.~Persons:Id = ~Principals:Principals.~Principals:PersonId
+          and ~Principals:Category = 'director'
+        ) as director,
+        (
+          select jsonb_agg(~Persons:Name)
+          from ~Principals:Principals, ~Persons:Persons
+          where ~Principals:Principals.~Principals:TitleId = ~Titles:Titles.~Titles:Id
+          and ~Persons:Persons.~Persons:Id = ~Principals:Principals.~Principals:PersonId
+          and ~Principals:Category = 'writer'
+        ) as writer
+      from ~Titles:Titles
+      where ~Titles:Id = 1
+    ) as result;";
+
+    expect(replacePlaceholders($query, namespaces: new BaseNamespaceCollection('Test\Unit')))->toBe($result);
+});

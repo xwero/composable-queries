@@ -36,6 +36,10 @@ namespace Xwero\ComposableQueries {
             return [];
         }
 
+        $set = array_unique($matches[0]);
+        // Order from the largest strings to the smallest strings to prevent similar named string errors during replacement.
+        usort($set, fn ($a, $b) => strlen($b)<=> strlen($a));
+
         return array_map(function($item) use ($namespaces) {
             $pair = explode(':', substr($item, 1));
 
@@ -59,20 +63,15 @@ namespace Xwero\ComposableQueries {
             }
 
             return [$item, $pair];
-        } , $matches[0]);
+        } , $set);
     }
 
-    function getQueryReplacementFromIdentifier(IdentifierInterface $replacement, OverrideCollection|null $overrides = null): string {
-        if ($overrides !== null && $overrides->keyExists($replacement)) {
-            return $overrides->getValue($replacement);
-        }
-
-        return $replacement instanceof BackedEnum ? $replacement->value : strtolower($replacement->name);
+    function getReplacementFromIdentifier(IdentifierInterface $identifier): string {
+        return $identifier instanceof BackedEnum ? $identifier->value : strtolower($identifier->name);
     }
 
     function collectPlaceholders(
         string                       $query,
-        OverrideCollection|null      $overrides = null,
         BaseNamespaceCollection|null $namespaces = null,
     ): PlaceholderReplacementCollection
     {
@@ -88,7 +87,7 @@ namespace Xwero\ComposableQueries {
             [$placeholder, $identifierOrPair] = $item;
 
             if ($identifierOrPair instanceof IdentifierInterface) {
-                $placeholderReplacements[] = new PlaceholderReplacement($placeholder, getQueryReplacementFromIdentifier($identifierOrPair, $overrides));
+                $placeholderReplacements[] = new PlaceholderReplacement($placeholder, getReplacementFromIdentifier($identifierOrPair));
             }
         }
 
@@ -97,11 +96,10 @@ namespace Xwero\ComposableQueries {
 
     function replacePlaceholders(
         string                       $query,
-        OverrideCollection|null      $overrides = null,
         BaseNamespaceCollection|null $namespaces = null,
     ): string
     {
-        $placeholderReplacements = collectPlaceholders($query, $overrides, $namespaces);
+        $placeholderReplacements = collectPlaceholders($query, $namespaces);
 
         return str_replace($placeholderReplacements->getPlaceholders(), $placeholderReplacements->getReplacements(), $query);
     }
@@ -120,7 +118,7 @@ namespace Xwero\ComposableQueries {
             [$placeholder, $identifierOrPair] = $item;
 
             if (is_array($identifierOrPair) && $identifierOrPair[0] == 'Array') {
-                $value = $parameters->getArrayValue($placeholder);
+                $value = $parameters->getValue($placeholder);
                 if (is_array($value)) {
                     foreach ($value as $k => $v) {
                         $placeholderReplacements[$placeholder . '_' . $k] = $v;
@@ -161,8 +159,12 @@ namespace Xwero\ComposableQueries {
         return str_replace($search, $replacements, $query);
     }
 
-    function createMapFromQueryResult( array $data, string $query, OverrideCollection|null $overrides = null, BaseNamespaceCollection|null $namespaces = null): SplObjectStorage|MapCollection
+    function createMapFromQueryResult( array|Error $data, string $query, AliasCollection|null $aliases = null, BaseNamespaceCollection|null $namespaces = null): SplObjectStorage|MapCollection|Error
     {
+        if($data instanceof Error) {
+            return $data;
+        }
+
         $map  = new SplObjectStorage();
         $placeholders = queryToIdentifierOrPairCollection($query, "(~[A-Za-z1-9\\\]+:[A-Za-z1-9]+)", $namespaces);
 
@@ -184,10 +186,18 @@ namespace Xwero\ComposableQueries {
                     [$placeholder, $identifierOrPair] = $item;
 
                     if ($identifierOrPair instanceof IdentifierInterface) {
-                        $queryReplacement = getQueryReplacementFromIdentifier($identifierOrPair, $overrides);
+                        $queryReplacement = getReplacementFromIdentifier($identifierOrPair);
 
                         if(array_key_exists($queryReplacement, $row)) {
                             $map[$identifierOrPair] = $row[$queryReplacement];
+                        }
+                    }
+                }
+
+                if($aliases instanceof AliasCollection) {
+                    foreach($data as $key => $value) {
+                        if($identifier = $aliases->getIdentifier($key)) {
+                            $map[$identifier] = $value;
                         }
                     }
                 }
@@ -202,10 +212,18 @@ namespace Xwero\ComposableQueries {
             [$placeholder, $identifierOrPair] = $item;
 
             if ($identifierOrPair instanceof IdentifierInterface) {
-                $queryReplacement = getQueryReplacementFromIdentifier($identifierOrPair, $overrides);
+                $queryReplacement = getReplacementFromIdentifier($identifierOrPair);
 
                 if(array_key_exists($queryReplacement, $data)) {
                     $map[$identifierOrPair] = $data[$queryReplacement];
+                }
+            }
+        }
+
+        if($aliases instanceof AliasCollection) {
+            foreach($data as $key => $value) {
+                if($identifier = $aliases->getIdentifier($key)) {
+                    $map[$identifier] = $value;
                 }
             }
         }
@@ -217,12 +235,12 @@ namespace Xwero\ComposableQueries {
 
 namespace Xwero\ComposableQueries\PDO {
 
+    use Exception;
     use PDO;
     use PDOException;
     use PDOStatement;
     use Xwero\ComposableQueries\BaseNamespaceCollection;
     use Xwero\ComposableQueries\Error;
-    use Xwero\ComposableQueries\OverrideCollection;
     use Xwero\ComposableQueries\QueryParametersCollection;
     use function Xwero\ComposableQueries\collectQueryParameters;
     use function Xwero\ComposableQueries\replacePlaceholders;
@@ -263,36 +281,44 @@ namespace Xwero\ComposableQueries\PDO {
         return str_replace(array_keys($queryReplacements), array_values($queryReplacements), $query);
     }
 
-    function getStatement(Connection $conn, string $query, QueryParametersCollection|null $parameters = null, OverrideCollection|null $overrides = null, BaseNamespaceCollection|null $namespaces = null): PDOStatement
+    function getStatement(Connection $conn, string $query, QueryParametersCollection|null $parameters = null, BaseNamespaceCollection|null $namespaces = null): PDOStatement|Error
     {
-        $query = replacePlaceholders($query, $overrides, $namespaces);
-        $statementParameters = [];
+        try {
+            $query = replacePlaceholders($query, $namespaces);
+            $statementParameters = [];
 
-        if ($parameters !== null) {
-            $statementParameters = collectQueryParameters($query, $parameters, $namespaces);
-            $query = replaceParameters($query, $statementParameters);
-        }
-
-        $statement = $conn->connection->prepare($query);
-
-        if (count($statementParameters) > 0) {
-            foreach ($statementParameters as $placeholder => $value) {
-                $type = match (true) {
-                    is_string($value) => PDO::PARAM_STR,
-                    is_bool($value) => PDO::PARAM_BOOL,
-                    is_float($value) => PDO::PARAM_STR,
-                    is_int($value) => PDO::PARAM_INT,
-                };
-
-                $statement->bindParam(getPlaceholder($placeholder), $value, $type);
+            if ($parameters !== null) {
+                $statementParameters = collectQueryParameters($query, $parameters, $namespaces);
+                $query = replaceParameters($query, $statementParameters);
             }
-        }
 
-        return $statement;
+            $statement = $conn->client->prepare($query);
+
+            if (count($statementParameters) > 0) {
+                foreach ($statementParameters as $placeholder => $value) {
+                    $type = match (true) {
+                        is_string($value) => PDO::PARAM_STR,
+                        is_bool($value) => PDO::PARAM_BOOL,
+                        is_float($value) => PDO::PARAM_STR,
+                        is_int($value) => PDO::PARAM_INT,
+                    };
+
+                    $statement->bindParam(getPlaceholder($placeholder), $value, $type);
+                }
+            }
+
+            return $statement;
+        } catch (Exception $e) {
+            return new Error($e);
+        }
     }
 
-    function getOne(PDOStatement $statement, int $column = 0) : mixed
+    function getOne(PDOStatement|Error $statement, int $column = 0) : mixed
     {
+        if ($statement instanceof Error) {
+            return $statement;
+        }
+
         try {
             $statement->execute();
         } catch (PDOException $e) {
@@ -306,8 +332,12 @@ namespace Xwero\ComposableQueries\PDO {
         }
     }
 
-    function getRow(PDOStatement $statement, int $pdoMode = PDO::FETCH_ASSOC) : mixed
+    function getRow(PDOStatement|Error $statement, int $pdoMode = PDO::FETCH_ASSOC) : mixed
     {
+        if ($statement instanceof Error) {
+            return $statement;
+        }
+
         try {
             $statement->execute();
         } catch (PDOException $e) {
@@ -321,8 +351,12 @@ namespace Xwero\ComposableQueries\PDO {
         }
     }
 
-    function getAll(PDOStatement $statement, int $pdoMode = PDO::FETCH_ASSOC) : mixed
+    function getAll(PDOStatement|Error $statement, int $pdoMode = PDO::FETCH_ASSOC) : mixed
     {
+        if ($statement instanceof Error) {
+            return $statement;
+        }
+
         try {
             $statement->execute();
         } catch (PDOException $e) {
@@ -339,7 +373,9 @@ namespace Xwero\ComposableQueries\PDO {
 
 namespace Xwero\ComposableQueries\Predis {
 
-    use Predis\Response\ServerException;
+    use Exception;
+    use Predis\Response\Status;
+    use Predis\Transaction\MultiExec;
     use Xwero\ComposableQueries\BaseNamespaceCollection;
     use Xwero\ComposableQueries\Error;
     use Xwero\ComposableQueries\QueryParametersCollection;
@@ -348,7 +384,7 @@ namespace Xwero\ComposableQueries\Predis {
 
     function getStatement(string $query, QueryParametersCollection|null $parameters = null, BaseNamespaceCollection|null $namespaces = null): Command|Error
     {
-        $query = replacePlaceholders($query, null, $namespaces);
+        $query = replacePlaceholders($query, $namespaces);
 
         if($parameters !== null) {
             $query = addQueryParameters($query, $parameters, $namespaces);
@@ -388,22 +424,163 @@ namespace Xwero\ComposableQueries\Predis {
         return new Error(new InvalidCommand("The command $possibleCommand does not exists."));
     }
 
-    function executeStatement(Connection $connection, Command $command): Error|true
+    function executeCommand(Connection|MultiExec $connection, Command|Error $command): Error|true|string|array|int
     {
-        try {
-            $connection->connection->{$command->name}($command->arguments ?? []);
+        if($command instanceof Error) {
+            return $command;
+        }
 
-            return true;
-        }catch (ServerException $e) {
+        try {
+            if($connection instanceof MultiExec) {
+                $connection->{$command->name}(...$command->arguments);
+
+                return true;
+            }
+
+            $result = $connection->client->{$command->name}(...$command->arguments);
+
+            if($result instanceof Status) {
+                if($result->getPayload() == 'OK' ) {
+                    return true;
+                }
+
+                return new Error(new \RedisException('Command failure with message: ' . $result->getPayload()));
+            }
+
+            return $result;
+        }catch (Exception $e) {
             return new Error($e);
         }
     }
 
-    function getResult(Connection $connection, Command $command): string|int|array|Error
+    function executeTransaction(Connection $connection, Command ...$commands): array|Error
     {
         try {
-            return $connection->connection->{$command->name}($command->arguments ?? []);
-        }catch (ServerException $e) {
+            return $connection->client->transaction(function ($trans) use ($commands) {
+                foreach ($commands as $command) {
+                    executeCommand($trans, $command);
+                }
+            });
+        } catch (Exception $e) {
+            return new Error($e);
+        }
+    }
+}
+
+namespace Xwero\ComposableQueries\MongoDb {
+
+    use Exception;
+    use InvalidArgumentException;
+    use MongoDB\InsertManyResult;
+    use MongoDB\InsertOneResult;
+    use Xwero\ComposableQueries\BaseNamespaceCollection;
+    use Xwero\ComposableQueries\Error;
+    use Xwero\ComposableQueries\JSONException;
+    use Xwero\ComposableQueries\QueryParametersCollection;
+    use function Xwero\ComposableQueries\addQueryParameters;
+    use function Xwero\ComposableQueries\getReplacementFromIdentifier;
+    use function Xwero\ComposableQueries\replacePlaceholders;
+
+    function buildDocument(DocumentBranch ...$branches): array
+    {
+        $insertByKeys = function(array $keys, $value, array &$dest)
+        {
+            $ptr = &$dest;                     // work on a reference to the root array
+
+            foreach (array_slice($keys, 0, -1) as $k) {
+                if (!isset($ptr[$k]) || !is_array($ptr[$k])) {
+                    $ptr[$k] = [];             // initialise missing branch
+                }
+                $ptr = &$ptr[$k];              // descend one level
+            }
+
+            $lastKey = end($keys);
+            $ptr[$lastKey] = $value;
+        };
+
+        $document = [];
+
+        foreach ($branches as $branch) {
+            $value = $branch->value;
+
+            if(is_array($value) && array_any($value, fn($v) => $v instanceof DocumentBranch)) {
+                $value = buildDocument(...$value);
+            }
+
+            if($branch->parents === null) {
+                $document[getReplacementFromIdentifier($branch->id)] = $value;
+                continue;
+            }
+
+            if(is_string($branch->parents) || is_int($branch->parents)) {
+                $parent = $branch->parents;
+
+                if(is_string($parent) && $parent == '*') {
+                    $document[][getReplacementFromIdentifier($branch->id)] = $value;
+                    continue;
+                }
+
+                $document[$branch->parents][getReplacementFromIdentifier($branch->id)] = $value;
+                continue;
+            }
+
+            $insertByKeys($branch->parents, $value, $document);
+        }
+
+        return $document;
+    }
+
+    function getStatement(string $query, QueryParametersCollection|null $parameters = null, BaseNamespaceCollection|null $namespaces = null): array|Error
+    {
+        try {
+            $query = replacePlaceholders($query,  $namespaces);
+
+            if($parameters !== null) {
+                $query = addQueryParameters($query, $parameters, $namespaces);
+            }
+
+            if(! json_validate($query)) {
+                return new Error(new JsonException('Statement error: '));
+            }
+
+            return json_decode($query, true);
+        }catch (Exception $e) {
+            return new Error($e);
+        }
+    }
+
+    function insert(Connection $connection, string $collection, array ...$documents): Error|InsertManyResult|InsertOneResult
+    {
+        if(count($documents) === 0) {
+            return new Error(new InvalidArgumentException('No documents were added.'));
+        }
+
+        if(count($documents) === 1) {
+            $document = $documents[0];
+
+            try {
+                return $connection->databaseClient->getCollection($collection)->insertOne($document);
+            } catch (Exception $e) {
+                return new Error($e);
+            }
+        }
+
+        try {
+            return $connection->databaseClient->getCollection($collection)->insertMany($documents);
+        } catch (Exception $e) {
+            return new Error($e);
+        }
+    }
+
+    function getOne(Connection$connection, string $collection, array|Error $statement): array|Error
+    {
+        if($statement instanceof Error) {
+            return $statement;
+        }
+
+        try {
+            return $connection->databaseClient->getCollection($collection)->findOne($statement)->getArrayCopy();
+        } catch (Exception $e) {
             return new Error($e);
         }
     }
